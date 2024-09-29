@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xjasonlyu/tun2socks/v2/common/pool"
+	"github.com/xjasonlyu/tun2socks/v2/buffer"
 	"github.com/xjasonlyu/tun2socks/v2/core/adapter"
 	"github.com/xjasonlyu/tun2socks/v2/log"
 	M "github.com/xjasonlyu/tun2socks/v2/metadata"
@@ -20,9 +20,9 @@ func (t *Tunnel) handleTCPConn(originConn adapter.TCPConn) {
 	id := originConn.ID()
 	metadata := &M.Metadata{
 		Network: M.TCP,
-		SrcIP:   net.IP(id.RemoteAddress.AsSlice()),
+		SrcIP:   parseTCPIPAddress(id.RemoteAddress),
 		SrcPort: id.RemotePort,
-		DstIP:   net.IP(id.LocalAddress.AsSlice()),
+		DstIP:   parseTCPIPAddress(id.LocalAddress),
 		DstPort: id.LocalPort,
 	}
 
@@ -34,7 +34,7 @@ func (t *Tunnel) handleTCPConn(originConn adapter.TCPConn) {
 		log.Warnf("[TCP] dial %s: %v", metadata.DestinationAddress(), err)
 		return
 	}
-	metadata.MidIP, metadata.MidPort = parseAddr(remoteConn.LocalAddr())
+	metadata.MidIP, metadata.MidPort = parseNetAddr(remoteConn.LocalAddr())
 
 	remoteConn = statistic.NewTCPTracker(remoteConn, metadata, t.manager)
 	defer remoteConn.Close()
@@ -56,11 +56,11 @@ func pipe(origin, remote net.Conn) {
 
 func unidirectionalStream(dst, src net.Conn, dir string, wg *sync.WaitGroup) {
 	defer wg.Done()
-	buf := pool.Get(pool.RelayBufferSize)
+	buf := buffer.Get(buffer.RelayBufferSize)
 	if _, err := io.CopyBuffer(dst, src, buf); err != nil {
 		log.Debugf("[TCP] copy data for %s: %v", dir, err)
 	}
-	pool.Put(buf)
+	buffer.Put(buf)
 	// Do the upload/download side TCP half-close.
 	if cr, ok := src.(interface{ CloseRead() error }); ok {
 		cr.CloseRead()

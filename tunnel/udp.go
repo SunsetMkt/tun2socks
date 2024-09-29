@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xjasonlyu/tun2socks/v2/common/pool"
+	"github.com/xjasonlyu/tun2socks/v2/buffer"
 	"github.com/xjasonlyu/tun2socks/v2/core/adapter"
 	"github.com/xjasonlyu/tun2socks/v2/log"
 	M "github.com/xjasonlyu/tun2socks/v2/metadata"
@@ -20,9 +20,9 @@ func (t *Tunnel) handleUDPConn(uc adapter.UDPConn) {
 	id := uc.ID()
 	metadata := &M.Metadata{
 		Network: M.UDP,
-		SrcIP:   net.IP(id.RemoteAddress.AsSlice()),
+		SrcIP:   parseTCPIPAddress(id.RemoteAddress),
 		SrcPort: id.RemotePort,
-		DstIP:   net.IP(id.LocalAddress.AsSlice()),
+		DstIP:   parseTCPIPAddress(id.LocalAddress),
 		DstPort: id.LocalPort,
 	}
 
@@ -31,7 +31,7 @@ func (t *Tunnel) handleUDPConn(uc adapter.UDPConn) {
 		log.Warnf("[UDP] dial %s: %v", metadata.DestinationAddress(), err)
 		return
 	}
-	metadata.MidIP, metadata.MidPort = parseAddr(pc.LocalAddr())
+	metadata.MidIP, metadata.MidPort = parseNetAddr(pc.LocalAddr())
 
 	pc = statistic.NewUDPTracker(pc, metadata, t.manager)
 	defer pc.Close()
@@ -66,8 +66,8 @@ func unidirectionalPacketStream(dst, src net.PacketConn, to net.Addr, dir string
 }
 
 func copyPacketData(dst, src net.PacketConn, to net.Addr, timeout time.Duration) error {
-	buf := pool.Get(pool.MaxSegmentSize)
-	defer pool.Put(buf)
+	buf := buffer.Get(buffer.MaxSegmentSize)
+	defer buffer.Put(buf)
 
 	for {
 		src.SetReadDeadline(time.Now().Add(timeout))
